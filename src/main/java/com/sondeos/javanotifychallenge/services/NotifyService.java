@@ -1,8 +1,13 @@
 package com.sondeos.javanotifychallenge.services;
 
+import com.sondeos.javanotifychallenge.exceptions.InvalidEmailFormatException;
+import com.sondeos.javanotifychallenge.exceptions.InvalidPhoneNumberFormatException;
+import com.sondeos.javanotifychallenge.exceptions.MaxRetriesExceededException;
+import com.sondeos.javanotifychallenge.exceptions.UnsupportedNotificationTypeException;
+import com.sondeos.javanotifychallenge.providers.ContactProvider;
 import com.sondeos.javanotifychallenge.providers.NotificationProvider;
+import com.sondeos.javanotifychallenge.providers.dto.ContactDto;
 import com.sondeos.javanotifychallenge.providers.dto.NotifyResultDto;
-import com.sondeos.javanotifychallenge.providers.dto.ValidationResult;
 import com.sondeos.javanotifychallenge.repository.NotificationRepository;
 import com.sondeos.javanotifychallenge.services.dto.NotificationProcessResult;
 import com.sondeos.javanotifychallenge.utils.NotificationProviderFactory;
@@ -13,10 +18,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -31,15 +36,20 @@ public class NotifyService {
     private final NotificationValidator notificationValidator;
     private final Executor notificationExecutor;
 
+    private final ConcurrentHashMap<String, ContactDto> contactCache = new ConcurrentHashMap<>();
+    private final ContactProvider contactProvider;
+
     @Autowired
     public NotifyService(
             NotificationProviderFactory notificationProviderFactory,
             NotificationValidator notificationValidator,
-            @Qualifier("notificationExecutor") Executor notificationExecutor
+            @Qualifier("notificationExecutor") Executor notificationExecutor,
+            ContactProvider contactProvider
     ) {
         this.notificationProviderFactory = notificationProviderFactory;
         this.notificationValidator = notificationValidator;
         this.notificationExecutor = notificationExecutor;
+        this.contactProvider = contactProvider;
     }
 
     /*
@@ -54,9 +64,6 @@ public class NotifyService {
 
         //Iniciamos contador de notificaciones enviadas
         AtomicInteger sent = new AtomicInteger();
-
-        // Lista para almacenar mensajes de error
-        List<String> errorLogs = new ArrayList<>();
 
         // Usamos el Executor inyectado
         CompletableFuture.allOf(NotificationRepository.getNotifications().stream()
@@ -83,20 +90,29 @@ public class NotifyService {
      * @return true si la notificación se envió correctamente, false en caso contrario.
      */
     public Boolean dispatchNotification(String type, String contactId, String message){
-        // Intentamos validar los datos, y si falla, lanzará una excepción que el ExceptionHandler gestionará
-        ValidationResult validationResult = notificationValidator.validateData(contactId, type);
-        if (!validationResult.isValid()) {
-            System.out.println("Validation failed: " + validationResult.getErrorMessage());
-            return false;
-        }
         try {
-            return RetryHandler.executeWithRetry(() -> {
-                NotificationProvider provider = notificationProviderFactory.getProvider(type);
-                NotifyResultDto result = provider.notify(validationResult.getContactData(), message);
-                return "sent".equalsIgnoreCase(result.getStatus());
+            // Verificar si el contacto está en caché o cargarlo si no está
+            ContactDto contact = contactCache.computeIfAbsent(contactId, contactProvider::getContact);
+            String contactData = notificationValidator.validateData(contact, type);
+
+            return RetryHandler.executeWithRetry(contactId,
+                () -> {
+                    NotificationProvider provider = notificationProviderFactory.getProvider(type);
+                    NotifyResultDto result = provider.notify(contactData, message);
+                    return "sent".equalsIgnoreCase(result.getStatus());
             }, 3, 1000);
-        } catch (Exception e) {
-            System.out.println("Error sending notification after retries: " + e.getMessage());
+
+        } catch (MaxRetriesExceededException |
+                 InvalidEmailFormatException |
+                 UnsupportedNotificationTypeException |
+                 InvalidPhoneNumberFormatException e) {
+            logger.error(e.getMessage());
+            return false;
+        } catch (HttpClientErrorException.NotFound e) {
+            logger.error("Contact not found for contact ID {}", contactId);
+            return false;
+        } catch (HttpClientErrorException e) {
+            logger.error("Error retrieving contact for contact ID {}", contactId);
             return false;
         }
     }

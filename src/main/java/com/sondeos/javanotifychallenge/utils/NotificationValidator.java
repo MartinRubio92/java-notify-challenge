@@ -1,15 +1,11 @@
 package com.sondeos.javanotifychallenge.utils;
 
-import com.sondeos.javanotifychallenge.exceptions.ContactNotFoundException;
 import com.sondeos.javanotifychallenge.exceptions.InvalidEmailFormatException;
 import com.sondeos.javanotifychallenge.exceptions.InvalidPhoneNumberFormatException;
-import com.sondeos.javanotifychallenge.providers.ContactProvider;
+import com.sondeos.javanotifychallenge.exceptions.UnsupportedNotificationTypeException;
 import com.sondeos.javanotifychallenge.providers.dto.ContactDto;
-import com.sondeos.javanotifychallenge.providers.dto.ValidationResult;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpClientErrorException;
 
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 @Component
@@ -23,42 +19,27 @@ public class NotificationValidator {
             "^[0-9]{10,15}$"
     );
 
-    private final ConcurrentHashMap<String, ContactDto> contactCache = new ConcurrentHashMap<>();
-
-    private final ContactProvider contactProvider;
-
-    public NotificationValidator(ContactProvider contactProvider) {
-        this.contactProvider = contactProvider;
+    public String validateData(ContactDto contact, String type)
+            throws InvalidEmailFormatException, InvalidPhoneNumberFormatException, UnsupportedNotificationTypeException {
+        return switch (type) {
+            case "email" -> validateEmailNotification(contact);
+            case "sms" -> validateSmsNotification(contact);
+            default -> throw new UnsupportedNotificationTypeException(contact.getId());
+        };
     }
 
-    public ValidationResult validateData(String contactId, String type) {
-        try {
-            // Verificar si el contacto está en caché o cargarlo si no está
-            ContactDto contact = contactCache.computeIfAbsent(contactId, contactProvider::getContact);
-
-            return switch (type) {
-                case "email" -> validateEmailNotification(contact);
-                case "sms" -> validateSmsNotification(contact);
-                default -> new ValidationResult(false, null, "Unsupported notification type" + contactId);
-            };
-
-        } catch (Exception e) {
-            return new ValidationResult(false, null, "Error retrieving contact: " + e.getMessage());
-        }
-    }
-
-    private ValidationResult validateEmailNotification(ContactDto contact) {
+    private String validateEmailNotification(ContactDto contact) {
         if (!EMAIL_PATTERN.matcher(contact.getEmail()).matches()) {
-            return new ValidationResult(false, null, "Invalid email format for contact ID " + contact.getId());
+            throw new InvalidEmailFormatException(contact.getId());
         }
-        return new ValidationResult(true, contact.getEmail(), null);
+        return contact.getEmail();
     }
 
-    private ValidationResult validateSmsNotification(ContactDto contact) {
+    private String validateSmsNotification(ContactDto contact) {
         if (!PHONE_PATTERN.matcher(contact.getPhoneNumber()).matches()) {
-            return new ValidationResult(false, null, "Invalid phone number format for contact ID " + contact.getId());
+            throw new InvalidPhoneNumberFormatException(contact.getId());
         }
-        return new ValidationResult(true, contact.getPhoneNumber(), null);
+        return contact.getPhoneNumber();
     }
 
 }

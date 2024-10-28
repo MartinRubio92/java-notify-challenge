@@ -5,7 +5,7 @@ import java.util.function.Supplier;
 
 public class RetryHandler {
 
-    public static <T> T executeWithRetry(Supplier<T> action, int maxRetries, long initialDelay) throws Exception {
+    public static <T> T executeWithRetry(String contactId, Supplier<T> action, int maxRetries, long initialDelay) throws MaxRetriesExceededException {
         int attempt = 0;
         long retryDelay = initialDelay;
 
@@ -16,17 +16,17 @@ public class RetryHandler {
                 attempt++;
 
                 if (attempt >= maxRetries) {
-                    throw new MaxRetriesExceededException("Max retries reached " + e.getMessage());
+                    throw new MaxRetriesExceededException(contactId);
                 }
                 try {
                     Thread.sleep(retryDelay);
                 } catch (InterruptedException interruptedException) {
                     Thread.currentThread().interrupt();
-                    throw new InterruptedException("Retry interrupted " + interruptedException.getMessage());
+                    throw new MaxRetriesExceededException(contactId);
                 }
                 retryDelay *= 2; // Aumento exponencial del tiempo de espera
             }
         }
-        throw new MaxRetriesExceededException("Failed to execute action after retries");
+        throw new MaxRetriesExceededException(contactId);
     }
 }

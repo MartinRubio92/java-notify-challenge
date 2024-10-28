@@ -24,9 +24,5 @@ class NotifyServiceTests {
         assertTrue(result.getDuration() < 30);
     }
 
-
-
-
-
-
+    
 }
