@@ -7,6 +7,12 @@ public class ContactDto {
     String email;
     String phoneNumber;
 
+    public ContactDto(String id, String email, String phoneNumber) {
+        this.id = id;
+        this.email = email;
+        this.phoneNumber = phoneNumber;
+    }
+
     public String getId() {
         return id;
     }

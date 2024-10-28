@@ -3,6 +3,7 @@ package com.sondeos.javanotifychallenge.utils;
 import com.sondeos.javanotifychallenge.providers.EmailProvider;
 import com.sondeos.javanotifychallenge.providers.NotificationProvider;
 import com.sondeos.javanotifychallenge.providers.SmsProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
